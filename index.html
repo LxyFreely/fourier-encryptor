@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>频域隐写工作台 · ARG 傅里叶掩码</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-dot"></span>
+    <span class="brand-title">频域隐写工作台</span>
+    <span class="brand-sub">傅里叶掩码 · ARG 谜题制作</span>
+  </div>
+  <nav class="tabs">
+    <button id="tabEncode" class="tab active" type="button">编码</button>
+    <button id="tabDecode" class="tab" type="button">解码 / 玩家端</button>
+    <button id="tabHelp" class="tab" type="button">原理说明</button>
+  </nav>
+  <div id="status" class="status">就绪</div>
+</header>
+
+<!-- ============================ 编码视图 ============================ -->
+<main id="viewEncode" class="view">
+
+  <div class="row row-top">
+
+    <!-- 1. 原始照片 -->
+    <section class="panel panel-src">
+      <header class="panel-head">
+        <h2><i class="idx">1</i>原始照片 A</h2>
+        <button id="btnPickSrc" class="btn btn-ghost btn-sm" type="button">选择图片</button>
+      </header>
+      <div id="srcDrop" class="dropzone">
+        <div id="srcEmpty" class="dropzone-empty">
+          <div class="dropzone-icon">＋</div>
+          <p>把照片拖进这里</p>
+          <p class="dim">PNG / JPEG / WEBP / 16 位 PNG / TIFF</p>
+        </div>
+        <canvas id="cvSrc" width="320" height="320" class="hidden"></canvas>
+      </div>
+      <div id="srcMeta" class="meta-grid"></div>
+    </section>
+
+    <!-- 2. 傅里叶画板 -->
+    <section class="panel panel-board">
+      <header class="panel-head">
+        <h2><i class="idx">2</i>傅里叶画板</h2>
+        <span id="boardSizeLabel" class="pill">512 × 512 · 频域</span>
+      </header>
+
+      <div class="toolbar">
+        <div class="toolgroup" role="group" aria-label="绘制工具">
+          <button id="toolBrush" class="tool active" data-tool="brush" type="button">画笔</button>
+          <button id="toolErase" class="tool" data-tool="erase" type="button">橡皮</button>
+          <button id="toolText" class="tool" data-tool="text" type="button">文字</button>
+        </div>
+        <label class="inline-field">笔刷
+          <input id="brushSize" type="range" min="2" max="60" value="14" step="1">
+          <output id="brushSizeVal">14</output>
+        </label>
+        <div class="toolgroup">
+          <button id="btnUndo" class="btn btn-ghost btn-sm" type="button" title="Ctrl+Z">撤销</button>
+          <button id="btnRedo" class="btn btn-ghost btn-sm" type="button" title="Ctrl+Shift+Z">重做</button>
+          <button id="btnClear" class="btn btn-ghost btn-sm" type="button">清空</button>
+          <button id="btnLoadMask" class="btn btn-ghost btn-sm" type="button">载入掩码图</button>
+        </div>
+      </div>
+
+      <div id="chanRow" class="toolbar toolbar-text hidden">
+        <span class="hint">画板</span>
+        <div class="toolgroup" role="group" aria-label="通道画板">
+          <button id="chan0" class="tool active" type="button" title="红通道画板"><i class="chan-dot" style="background:#ff5c6e"></i>R<span class="chan-count"></span></button>
+          <button id="chan1" class="tool" type="button" title="绿通道画板"><i class="chan-dot" style="background:#56e28a"></i>G<span class="chan-count"></span></button>
+          <button id="chan2" class="tool" type="button" title="蓝通道画板"><i class="chan-dot" style="background:#60aaff"></i>B<span class="chan-count"></span></button>
+          <button id="chan3" class="tool" type="button" title="透明通道画板"><i class="chan-dot" style="background:#e8e8e8"></i>A<span class="chan-count"></span></button>
+        </div>
+        <span class="hint">四块画板各藏一份信息</span>
+      </div>
+
+      <div id="textRow" class="toolbar toolbar-text hidden">
+        <label class="inline-field grow">文字
+          <input id="textValue" type="text" value="ARG" maxlength="24" spellcheck="false">
+        </label>
+        <label class="inline-field">字号
+          <input id="textSize" type="range" min="10" max="220" value="96" step="2">
+          <output id="textSizeVal">96</output>
+        </label>
+        <span class="hint">在画板上点击落字</span>
+      </div>
+
+      <div class="board-wrap">
+        <div class="board-stack" id="boardStack">
+          <canvas id="cvSpec" width="512" height="512"></canvas>
+          <canvas id="cvMask" width="512" height="512" class="layer"></canvas>
+          <canvas id="cvHud" width="512" height="512" class="layer"></canvas>
+          <div id="boardEmpty" class="board-empty">先载入一张原始照片</div>
+        </div>
+        <div class="board-legend">
+          <span><i class="sw sw-edit"></i>已选频点（共轭对自动补全）</span>
+          <span><i class="sw sw-dc"></i>DC / 内径以内禁用</span>
+          <span class="dim">低频在中心</span>
+        </div>
+      </div>
+      <div id="boardHint" class="board-hint"></div>
+    </section>
+
+    <!-- 3. 输出照片 -->
+    <section class="panel panel-out">
+      <header class="panel-head">
+        <h2><i class="idx">3</i>输出照片</h2>
+        <div class="segmented">
+          <button id="outTabImg" class="seg active" type="button">修改图 Ab</button>
+          <button id="outTabDiff" class="seg" type="button">差分图</button>
+        </div>
+      </header>
+      <div class="out-wrap">
+        <canvas id="cvOut" width="320" height="320"></canvas>
+        <div id="outEmpty" class="out-empty">生成后在此预览</div>
+      </div>
+      <label id="gainRow" class="inline-field hidden">差分增益
+        <input id="diffGain" type="range" min="0" max="200" value="0" step="1">
+        <output id="diffGainVal">自动</output>
+      </label>
+      <div id="outMeta" class="meta-grid"></div>
+      <button id="btnSaveOut" class="btn btn-primary btn-block" type="button">导出 16 位 PNG</button>
+    </section>
+
+  </div>
+
+  <div class="row row-bottom">
+
+    <!-- 参数 -->
+    <section class="panel panel-params">
+      <header class="panel-head"><h2>参数</h2>
+        <label class="switch"><input id="chkAuto" type="checkbox" checked><span>自动重算</span></label>
+      </header>
+      <div class="fields">
+        <label class="field">
+          <span>图像尺寸</span>
+          <select id="selN">
+            <option value="64">64 × 64（像素图标）</option>
+            <option value="128">128 × 128（小图）</option>
+            <option value="256">256 × 256（最快）</option>
+            <option value="512" selected>512 × 512（推荐）</option>
+            <option value="1024">1024 × 1024（最细腻）</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>适配方式</span>
+          <select id="selFit">
+            <option value="cover" selected>裁切填满（保持比例）</option>
+            <option value="stretch">拉伸铺满</option>
+            <option value="fit">留黑边完整保留</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>频带内径 <b id="bandMinVal">0.12</b></span>
+          <input id="bandMin" type="range" min="0" max="0.95" step="0.01" value="0.12">
+        </label>
+        <label class="field">
+          <span>频带外径 <b id="bandMaxVal">0.95</b></span>
+          <input id="bandMax" type="range" min="0.2" max="1.45" step="0.01" value="0.95">
+        </label>
+        <label class="switch"><input id="chkOuter" type="checkbox" checked><span>限制外径（关掉后内径以外整圈都能画）</span></label>
+        <label class="field">
+          <span>选点密度 <b id="densityVal">100%</b></span>
+          <input id="density" type="range" min="5" max="100" step="1" value="100">
+        </label>
+        <label class="field">
+          <span>选点上限 <b id="maxBinsVal">8000</b></span>
+          <input id="maxBins" type="range" min="200" max="20000" step="100" value="8000">
+        </label>
+        <label class="field">
+          <span>扰动方式</span>
+          <select id="selMode">
+            <option value="add" selected>常量加法 δ（推荐）</option>
+            <option value="mul">乘性相对 ε（原方案）</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>扰动强度 <b id="strengthVal">3.00</b></span>
+          <input id="strength" type="range" min="0" max="1000" step="1" value="656">
+        </label>
+        <label class="field field-row">
+          <span>密钥</span>
+          <input id="keyInput" type="text" value="ARG-FOURIER-01" spellcheck="false">
+          <button id="btnRandKey" class="btn btn-ghost btn-sm" type="button">随机</button>
+        </label>
+        <label class="field">
+          <span>色彩处理</span>
+          <select id="selColor">
+            <option value="color" selected>保留彩色（扰动等量加到 RGB）</option>
+            <option value="gray">灰度输出</option>
+            <option value="channels">四通道独立（RGBA 各一块画板）</option>
+          </select>
+        </label>
+        <p id="colorMeta" class="note"></p>
+        <button id="btnRecompute" class="btn btn-primary btn-block" type="button">重新计算</button>
+      </div>
+    </section>
+
+    <!-- 指标 -->
+    <section class="panel panel-metrics">
+      <header class="panel-head"><h2>质量指标</h2><span id="metricsBadge" class="pill pill-dim">待计算</span></header>
+      <div class="metric-grid">
+        <div class="metric"><span class="metric-label">实际选点</span><span id="mBins" class="metric-value">—</span></div>
+        <div class="metric"><span class="metric-label">可编辑区覆盖</span><span id="mCover" class="metric-value">—</span></div>
+        <div class="metric"><span class="metric-label">PSNR</span><span id="mPsnr" class="metric-value">—</span></div>
+        <div class="metric"><span class="metric-label">最大像素差</span><span id="mMaxDiff" class="metric-value">—</span></div>
+        <div class="metric"><span class="metric-label">8 位检测余量</span><span id="mMargin" class="metric-value">—</span></div>
+        <div class="metric"><span class="metric-label">16 位提取 IoU</span><span id="mIou16" class="metric-value">—</span></div>
+        <div class="metric"><span class="metric-label">8 位提取 IoU</span><span id="mIou8" class="metric-value">—</span></div>
+        <div class="metric"><span class="metric-label">输出指纹</span><span id="mHash" class="metric-value mono">—</span></div>
+      </div>
+      <div id="mChans" class="meta-grid hidden"></div>
+      <p id="mNote" class="note">载入照片并在画板上画出图案后开始计算。</p>
+    </section>
+
+    <!-- 导出 -->
+    <section class="panel panel-export">
+      <header class="panel-head"><h2>导出</h2></header>
+      <div class="export-list">
+        <button id="btnExp16" class="btn btn-export" type="button"><b>16 位 PNG</b><span>高精度分发首选</span></button>
+        <button id="btnExpTif" class="btn btn-export" type="button"><b>float32 TIFF</b><span>零量化损失</span></button>
+        <button id="btnExp8" class="btn btn-export" type="button"><b>8 位 PNG</b><span>兼容优先（有损）</span></button>
+        <button id="btnExpMask" class="btn btn-export" type="button"><b>掩码图</b><span>答案 / 出题人留存</span></button>
+        <button id="btnExpDiff" class="btn btn-export" type="button"><b>差分图</b><span>玩家视角效果图</span></button>
+        <button id="btnExpPack" class="btn btn-export" type="button"><b>谜题包 JSON</b><span>参数 + 密钥 + 校验</span></button>
+        <button id="btnExpReadme" class="btn btn-export" type="button"><b>玩家说明</b><span>分发用 Markdown</span></button>
+        <button id="btnCopyKey" class="btn btn-export" type="button"><b>复制密钥</b><span>贴到谜题公告里</span></button>
+      </div>
+      <p class="note">提示：16 位 PNG 与 float32 TIFF 都不能截图、不能转格式、不能过社交平台压缩。</p>
+    </section>
+
+  </div>
+</main>
+
+<!-- ============================ 解码视图 ============================ -->
+<main id="viewDecode" class="view view-decode hidden">
+  <div class="dec-grid">
+    <section class="panel">
+      <header class="panel-head"><h2>原图 A</h2><span class="pill pill-dim">对照基准</span></header>
+      <div id="decDropA" class="dropzone">
+        <canvas id="decCvA" width="240" height="240" class="hidden"></canvas>
+        <div id="decEmptyA" class="dropzone-empty"><div class="dropzone-icon">A</div><p>拖入原始照片</p></div>
+      </div>
+      <div id="decMetaA" class="meta-grid"></div>
+    </section>
+
+    <section class="panel">
+      <header class="panel-head"><h2>修改图 Ab</h2><span class="pill pill-dim">待检验文件</span></header>
+      <div id="decDropB" class="dropzone">
+        <canvas id="decCvB" width="240" height="240" class="hidden"></canvas>
+        <div id="decEmptyB" class="dropzone-empty"><div class="dropzone-icon">B</div><p>拖入待检验图</p></div>
+      </div>
+      <div id="decMetaB" class="meta-grid"></div>
+    </section>
+
+    <section class="panel panel-dec-result">
+      <header class="panel-head"><h2>频域差分 D = |F(Ab) − F(A)|</h2>
+        <button id="btnDecSave" class="btn btn-ghost btn-sm" type="button" disabled>保存掩码 PNG</button>
+      </header>
+      <div id="decChanRow" class="toolbar hidden">
+        <div class="segmented" role="group" aria-label="通道视图">
+          <button id="decChanAll" class="seg active" type="button">全部</button>
+          <button id="decChan0" class="seg" type="button">R</button>
+          <button id="decChan1" class="seg" type="button">G</button>
+          <button id="decChan2" class="seg" type="button">B</button>
+          <button id="decChan3" class="seg" type="button">A</button>
+        </div>
+        <span class="hint">红=R · 绿=G · 蓝=B · 白=A</span>
+      </div>
+      <div class="dec-canvas-wrap">
+        <canvas id="decCvOut" width="512" height="512"></canvas>
+        <div id="decEmptyOut" class="out-empty">两张图都载入后开始提取</div>
+      </div>
+      <div id="decStats" class="meta-grid"></div>
+    </section>
+
+    <section class="panel panel-dec-ctrl">
+      <header class="panel-head"><h2>提取参数</h2></header>
+      <div class="fields">
+        <label class="field">
+          <span>频带内径 <b id="decBandMinVal">0.12</b></span>
+          <input id="decBandMin" type="range" min="0" max="0.95" step="0.01" value="0.12">
+        </label>
+        <label class="field">
+          <span>频带外径 <b id="decBandMaxVal">0.95</b></span>
+          <input id="decBandMax" type="range" min="0.2" max="1.45" step="0.01" value="0.95">
+        </label>
+        <label class="switch"><input id="decOuter" type="checkbox" checked><span>限制外径</span></label>
+        <label class="field">
+          <span>频谱模式</span>
+          <select id="decMode">
+            <option value="gray" selected>灰度（RGB 合并成一幅）</option>
+            <option value="channels">四通道独立（R/G/B/A）</option>
+          </select>
+        </label>
+        <label class="switch"><input id="decAuto" type="checkbox" checked><span>自动阈值（Otsu）</span></label>
+        <label class="field">
+          <span>手动阈值 <b id="decThreshVal">自动</b></span>
+          <input id="decThresh" type="range" min="0" max="1000" step="1" value="500" disabled>
+        </label>
+        <label class="field field-row">
+          <span>谜题包</span>
+          <input id="decPackName" type="text" readonly placeholder="未载入（可选）">
+          <button id="btnDecPack" class="btn btn-ghost btn-sm" type="button">载入</button>
+        </label>
+        <button id="btnDecRun" class="btn btn-primary btn-block" type="button">提取</button>
+      </div>
+      <p class="note">提取到的是“频域上的形状”，并自动带出 180° 镜像。这正是 ARG 里可以当线索用的现象。</p>
+    </section>
+  </div>
+</main>
+
+<!-- ============================ 说明视图 ============================ -->
+<main id="viewHelp" class="view view-help hidden">
+  <article class="doc">
+    <h1>这个工具在做什么</h1>
+    <p>把一张照片 A 做二维傅里叶变换，在<b>频谱</b>上用鼠标画出图案 B，工具会把 B 选中的频点做极微小的扰动，再逆变换回空间域得到 Ab。
+      玩家拿到 A 与 Ab 两份原文件后，各自做傅里叶变换、相减、取阈值，就能在频谱差分里重新看见 B 的形状。</p>
+
+    <h2>三条硬性约束（工具已自动处理）</h2>
+    <ul>
+      <li><b>共轭对称</b>：实图像的频谱满足 F(−u,−v) = conj(F(u,v))。所以画板不限制你在哪半边画，但每一个被选中的频点，工具都会自动把它的对径点一起改，逆变换才不会出现虚部伪影。</li>
+      <li><b>DC 与低频</b>：中心点是直流分量，必须保持实数；中心列被禁用，低频环带默认避开，避免整张图变亮变暗或出现低频条纹。</li>
+      <li><b>无损保存</b>：微小扰动低于 8 位量化步长，用 8 位 PNG / JPEG / 截图都会把它抹掉。分发请用 16 位 PNG 或 float32 TIFF。</li>
+    </ul>
+
+    <h2>色彩处理：一幅频谱，还是四幅？</h2>
+    <ul>
+      <li><b>保留彩色</b>：先把 RGB 平均成一幅灰度频谱，同一个扰动等量加到三个通道，任何通道都能解出同一份图案。</li>
+      <li><b>灰度输出</b>：同上，只是输出只有灰度。</li>
+      <li><b>四通道独立</b>：把图拆成 R / G / B / A 四张单通道图，<b>每张各有自己的傅里叶画板、自己的选点、自己的扰动</b>。
+        R 板上的图案只会出现在 R 通道的频谱里，G 板只出现在 G 通道……所以一张图能同时藏 <b>四份互不相同</b> 的信息，
+        解出来是四张独立图案。画板上方的 R / G / B / A 按钮就是切换这四块板子。</li>
+    </ul>
+    <p>代价与注意：导出必须是 4 通道文件（16 位 RGBA PNG 或 float32 RGBA TIFF）；解谜时也<b>不能</b>先把 alpha 合成进颜色，
+      否则 A 通道的改动会轻微牵连 R/G/B。照片类素材的 A 通道通常整片不透明，它的频谱几乎只有直流分量，
+      所以 A 画板底色发黑是正常的，照样能画、照样能解。</p>
+
+    <h2>参数怎么调</h2>
+    <ul>
+      <li><b>扰动强度 δ</b>：单位是满量程（1.0 = 255 级）。8 位量化在频域的等效噪声约 σ = N·(1/255)/√12，512 尺寸下约 0.58。δ 取 3～6 即“肉眼完全看不见但 8 位也能扛”，取 0.5 以下就只有高精度格式能救回来。</li>
+      <li><b>频带内径</b>：越大越隐蔽，但图案边缘越容易糊。0.10～0.20 是常用区间。</li>
+      <li><b>选点密度 / 上限</b>：点越少越隐蔽，越稀疏。差异图里的笔画会变“沙砾感”，这本身也是 ARG 的味道。</li>
+      <li><b>密钥</b>：控制稀疏采样与符号，决定最终选了哪些点。同一密钥必须同时出现在出题与解题流程里才能复现。</li>
+    </ul>
+
+    <h2>出题流程建议</h2>
+    <ol>
+      <li>选一张构图干净、细节丰富的照片，尺寸拉到 512。</li>
+      <li>在画板上写一个词或画一个符号（任意位置都行，越靠近中心越容易被低频吃掉）。</li>
+      <li>看“质量指标”：PSNR 应高于 55 dB，最大像素差个位数，8 位检测余量 ≥ 3。</li>
+      <li>导出 16 位 PNG（或 float32 TIFF）与谜题包 JSON，自己再走一遍“解码”标签页确认能读出来。</li>
+      <li>把原图与修改图一起发给玩家，并明确提示：不要截图、不要转格式、不要压图。</li>
+    </ol>
+
+    <h2>镜像现象</h2>
+    <p>差分图里会同时出现 B 和它旋转 180° 的镜像。这不是 bug：共轭对称决定了差分必然中心对称。
+      可以直接当线索用（“频谱里出现一正一反两个字”），也可以只让玩家看右半边。</p>
+
+    <h2>为什么不能当通信式隐写</h2>
+    <p>这套方案没有抗压缩能力。任何重采样、JPEG、平台二次压缩都会把小于量化步长的扰动洗掉。
+      它适合做“必须使用原始文件”的谜题层，不适合做需要过社交平台的信息传递。</p>
+  </article>
+</main>
+
+<input type="file" id="fileInput" accept="image/*,.tif,.tiff" hidden>
+<input type="file" id="maskInput" accept="image/*,.tif,.tiff" hidden>
+<input type="file" id="decInputA" accept="image/*,.tif,.tiff" hidden>
+<input type="file" id="decInputB" accept="image/*,.tif,.tiff" hidden>
+<input type="file" id="packInput" accept=".json,application/json" hidden>
+
+<script src="src/fft.js"></script>
+<script src="src/codec.js"></script>
+<script src="src/app.js"></script>
+<script src="src/selftest.js"></script>
+</body>
+</html>
